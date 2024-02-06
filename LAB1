@@ -1,0 +1,129 @@
+;***************************************************************
+; Universidad del Valle de Guatemala
+; IE2023: Programación de Microcontroladores
+; Laboratorio_1
+; Autor: Carlos Sosa 
+; Proyecto: Laboratorio 1
+; Hardware: ATMEGA328P
+; Creado 21/01/2024
+; Última modificicación: 05/02/2024
+;***************************************************************
+
+.INCLUDE "M328PDEF.INC"
+.CSEG
+
+.ORG 0X00
+start:
+
+	LDI R25, 0b1000_0000
+	LDI R25, (1 << CLKPCE)
+	STS CLKPR, R25 ; prescaler habilitado
+
+	LDI R25, 0b000_0011
+	STS CLKPR, R25 ; prescaler a 2MHz
+
+
+    LDI R16, 0
+	LDI R17, 0
+	LDI R23, 0
+	; LDI R24, 0b00001111;
+	; CBI DDRC, R24
+
+loop:
+	IN R18, PINC
+	SBRS R18, PC0
+	IN R19, PINC1
+	SBRS R19, PC1
+
+	SBRC R18, 0 ;Salta si el bit 1 de R18 esta en 0 
+	RJMP incremento ;Salta a incremento si el bit 1 no esta en cero
+	SBRC R19, 0 ;Salta si el bit 1 de R19 esta en 0
+	RJMP decremento
+
+	IN R20, PC2
+	IN R21, PC3
+	SBRC R20, 0 ;Salta si el bit 1 de R18 esta en 0 
+	RJMP incremento2 ;Salta a incremento si el bit 1 no esta en cero
+	SBRC R21, 0 ;Salta si el bit 1 de R19 esta en 0
+	RJMP decremento2 ;Salta a incremento si el bit 1 no esta en cero
+
+	IN R23, PC4
+	SBRC R23, 0
+	RJMP sumatoria
+	RJMP loop
+
+incremento:
+	INC R16
+	RJMP leds
+
+incremento2:
+	INC R17
+	RJMP leds
+
+decremento:
+	DEC	R16
+	RJMP leds2
+
+decremento2:
+	DEC R17
+	RJMP leds2
+
+
+leds:
+	SBRC R16, 0
+		CALL led_1
+	SBRC R16, 1
+		CALL led_2
+	SBRC R16, 2
+		CALL led_3
+	SBRC R16, 3
+		CALL led_4
+	RJMP loop
+
+leds2:
+	SBRC R17, 0
+		CALL led_v1
+	SBRC R17, 1
+		CALL led_v2
+	SBRC R17, 2
+		CALL led_v3
+	SBRC R17, 3
+		CALL led_v4
+	RJMP loop
+
+led_1:
+	SBI PD2
+
+led_2:
+	SBI PD3
+
+led_3: 
+	SBI PD4
+
+led_4:
+	SBI PD5
+
+
+
+led_v1:
+	SBI PD6
+
+led_v2:
+	SBI PD7
+
+led_v3:
+	SBI PB0
+
+led_v4:
+	SBI PB1
+
+sumatoria:
+ADD R24, R17, R16
+SBRC R24, 0
+RJMP carrygod
+RJMP loop
+
+carrygod:
+	SBI PB2
+
+
