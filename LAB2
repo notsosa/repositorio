@@ -1,0 +1,99 @@
+;
+; laboratorio3.asm
+;
+; Created: 13/02/2024 14:01:45
+; Author : cssos
+;
+
+.include "M328PDEF.inc"
+.cseg
+.org 0x0002
+	JMP ISR_INT0
+
+.org 0X0004
+	JMP ISR_INT1
+
+start:
+	LDI R16, LOW(RAMEND)
+	OUT SPL, R16
+	LDI R17, HIGH(RAMEND)
+	OUT SPH, R17
+
+loop:
+
+JMP loop
+
+main:
+	SBI PORTD, PD2
+	CBI DDRD, PD2 ; entrada
+
+	SBI PORTD, PD3
+	SBI DDRD, PD3
+
+	LDI R16, (1 << ISC01)|(1 << ISC00)
+	STS EICRA, R16 ; flanco de subida
+
+	SBI EIMSK, INT0 ;habilitar la interrupción
+
+	SBI DDRC, PC0 ; SALIDAS A LEDS
+	CBI PORTC, PC0 ; apagando salidas
+
+	SBI DDRC, PC1
+	CBI PORTC, PC1
+
+	SBI DDRC, PC2 
+	CBI PORTC, PC2
+
+	SBI DDRC, PC3
+	CBI PORTC, PC3
+
+
+	SEI ; habilitar interrupciones globales
+
+
+ISR_INT0:
+	PUSH R16 ; guardar el status
+	IN R16, SREG ; meter lo del status register en R16
+	PUSH R16 ; guardar de nuevo el status
+
+	INC R16
+	RJMP leds ; jugar con el R16
+
+	POP R16 ; sacar datos de la pila
+	OUT SREG, R16 ; restaurar el status register
+	POP R16
+	RETI
+
+ISR_INT1:
+	PUSH R16 ; guardar el status
+	IN R16, SREG ; meter lo del status register en R16
+	PUSH R16 ; guardar de nuevo el status
+
+	DEC R16
+	RJMP leds ; jugar con el R16
+
+	POP R16 ; sacar datos de la pila
+	OUT SREG, R16 ; restaurar el status register
+	POP R16
+	RETI
+
+
+leds:
+
+SBRC R16, 0
+	SBI PORTB, 0
+SBRC R16, 1
+	SBI PORTB, 1
+SBRC R16, 2
+	SBI PORTB, 2
+SBRC R16, 3
+	SBI PORTB, 3
+
+SBRS R16, 0
+	SBI PORTB, 0
+SBRS R16, 1
+	SBI PORTB, 1
+SBRS R16, 2
+	SBI PORTB, 2
+SBRS R16, 3
+	SBI PORTB, 3
