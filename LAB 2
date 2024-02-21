@@ -1,0 +1,151 @@
+;***************************************************************
+; Universidad del Valle de Guatemala
+; IE2023: Programación de Microcontroladores
+; Laboratorio2
+; Autor: Carlos Sosa 
+; Proyecto: Laboratorio 2
+; Hardware: ATMEGA328P
+; Creado 06/02/2024
+; Última modificicación: 20/02/2024
+;***************************************************************
+
+.INCLUDE "M328PDEF.INC"
+
+.DEF CONT10MS = R22
+
+.ORG 0X000
+
+.DEF VALORD7 = R23 //Definir variables
+
+start:
+
+	LDI R21, 0b0000_0000 //Declarar salidas y entradas
+
+	LDI R17, 0b11111111
+	OUT DDRD, R17
+
+	LDI R19, 0b0000_0000
+	OUT DDRB, R19
+
+	LDI R19, 0b11111111
+	OUT PORTB, R19
+
+	CALL InitTMR0 //Empezar el proceso del timer0
+
+	LDI R17, 0 //Declarar valores iniciales
+	LDI R18, 0
+	CLR CONT10MS //Reiniciar Contador 
+
+	LDI	R16, 0x00
+	STS	UCSR0B, R16 //Poner en cero el RX y TX
+
+
+loop:
+
+	IN R20, TIFR0
+	SBRS R20, TOV0 ; IF ( r20 BIT TOV0 ESTA ENCENDIDO)
+	JMP loop	; NO ESTA ENCENDIDO
+
+	INC CONT10MS	; ESTA ENCENDIDO
+
+	LDI R16, 100
+	OUT TCNT0, R16		; ESTAMOS CARGANDO DE NUEVO EL VALOR DE N
+
+	SBI TIFR0, TOV0		; APAGANDO LA BANDERA
+
+	CPI CONT10MS, 10
+	BRNE loop
+	; SE COMPLETO LOS 100ms
+	CLR CONT10MS
+
+	INC R17 //Incrementar 1 por cada vuelta
+	ANDI R17, 0x0F
+
+display:
+	IN R16, PINB //Boton incremento
+	SBRS R16, PB2
+	CALL incremento
+
+	IN R22, PINB //Boton decremento
+	SBRS R22, PB1
+	CALL decremento
+
+	LDI ZH, HIGH(TABLA7SEG << 1) //Buscador de la dirección deseada con respecto a R17 para mostrar el display
+	LDI ZL, LOW(TABLA7SEG <<1)
+	ADD ZL, VALORD7
+	BRCC NOTCARRY //Agregar carry de forma manual a la dirección ZH
+	INC ZH
+
+NOTCARRY:
+	LPM R24, Z //Cargar dato en la flash
+	RJMP loop //Regresar a la subrutina loop
+
+//Subrutinas
+incremento: //Suma
+
+	INC R21
+	RJMP display
+	LDI R22, 100
+
+	resta1: //Contador
+		DEC R22
+		BRNE resta1
+	SBIS PINB, PB2
+	RJMP incremento
+	RJMP led_display
+
+decremento: //Resta
+	DEC R21
+	RJMP display
+	LDI R22, 100
+
+	resta2: //Contador
+		DEC R22
+		BRNE resta2
+	SBIS PINB, PB1
+	RJMP decremento
+	RJMP led_display
+
+
+led_display: //Mostrar el valor con la dirección que se dedujo
+
+OUT PORTD, VALORD7
+
+
+leds: //Contador de 4 bits
+
+SBRC R17, 0
+	SBI PORTC, 0
+SBRC R17, 1
+	SBI PORTC, 1
+SBRC R17, 2
+	SBI PORTC, 2
+SBRC R17, 3
+	SBI PORTC, 3 //Encender leds
+
+SBRS R17, 0
+	CBI PORTC, 0
+SBRS R17, 1
+	CBI PORTC, 1
+SBRS R17, 2
+	CBI PORTC, 2
+SBRS R17, 3
+	CBI PORTC, 3 //Apagar leds
+
+
+RJMP loop //Regresar a la subrutina loop
+
+InitTMR0: //Subturina para preparar el prescaler
+
+	CLR R16
+	OUT TCCR0A, R16
+
+	LDI R17, (1 << CS02)|(1 << CS00) ;Prescaler a 1024
+	OUT TCCR0B, R17
+
+	LDI R16, 100
+	OUT TCNT0, R16
+	
+	RET
+
+TABLA7SEG: .DB 0X3F, 0X06, 0X5B, 0X4F, 0X66, 0X6D, 0X7D, 0X07, 0X07F, 0X6F, 0X77, 0X7C, 0X39, 0X5E, 0X79, 0X71 //Tabla con lo que se quiere mostrar en el display
