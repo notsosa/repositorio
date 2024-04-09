@@ -1,0 +1,80 @@
+/*
+ * main.c
+ *
+ * Created: 4/7/2024 5:27:41 PM
+ *  Author: cssos
+ */ 
+
+#define F_CPU 16000000
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+volatile uint8_t contador = 0b01001001;	// Contador de 8 bits
+
+void initButtons(void);
+
+int main(void){
+	
+	initButtons();	// Inicializar
+	
+    while(1)
+    {
+		PORTC = 0b00000001;
+        // Mostrar el valor del contador en el puerto D
+		PORTD = contador;
+		_delay_ms(2);
+		PORTC = 0b00000010;
+		PORTD = contador;
+		_delay_ms(2);
+		PORTC = 0b00000100;
+		PORTD = contador;
+		_delay_ms(2);
+		 
+    }
+}
+
+void initButtons(void){
+	
+	cli();
+	DDRD = 0xFF; // Habilitar com salidas
+	UCSR0B = 0;
+	
+	PORTD = 0;	// Limpiar el puerto D
+	
+	DDRC = 0xFF; // Habilitar puerto C como salida
+	PORTC = 0;	// Limpiar el puerto C
+	
+	DDRB = 0xFF; // Habilitar puerto B como salida
+	PORTB = 0; // Limpiar el puerto B
+	
+	// Configurar los pines de entrada
+	DDRB &= ~((1 << PORTB0) | (1 << PORTB1)); // PB0 como entrada
+	PCICR |= (1 << PCIE0); // Habilitar interrupciones para el puerto B
+	PCMSK0 |= (1 << PCINT0) | (1<<PCINT1); // Habilitar las interrupciones externas para PB0 y PB1
+	sei();
+}
+
+ISR(PCINT0_vect){
+		_delay_ms(10);
+	if (!(PINB & (1 << PB0))) {
+	// Incrementar al presionar el botón en PB0
+	if (contador < 255) {
+		contador++;
+		}
+	else {
+		contador = 255; // Asignar el valor máximo si se quiere seguir aumentando
+		}
+	}
+	if (!(PINB & (1 << PB1))) {
+		// Decrementar al presionar el botón en PC5
+		if (contador > 0) {
+			contador--;
+		}
+		else {
+			contador = 0; // Asignar el valor mínimos si se quiere seguir decrementando
+		}
+	}
+		
+}
