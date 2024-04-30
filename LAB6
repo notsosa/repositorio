@@ -1,0 +1,128 @@
+//******************************************************************************
+// Universidad Del Valle De Guatemala
+// IE2023: Programación de Microcontroladores
+// Autor: Carlos Sosa
+// Carné: 22156
+// Proyecto: Laboratorio 6
+// Hardware: Atmega238p
+// Creado: 30/04/2024
+//******************************************************************************
+
+
+#define F_CPU 16000000 // Definir la frecuencia del reloj (16 MHz en este caso).
+
+#include <avr/io.h>    
+#include <util/delay.h> 
+#include <avr/interrupt.h> 
+#include <stdio.h> 
+
+volatile uint8_t bufferTX; // Buffer para almacenar el último byte recibido por UART.
+volatile uint16_t valorADC; // Variable para almacenar el resultado de 10 bits del ADC.
+
+void initUART9600(void);
+void writeUART(char Caracter);
+void writeTextUART(const char* Texto);
+void initADC(void);
+void setupPorts(void);
+
+int main(void)
+{
+	initUART9600(); // 9600
+	initADC(); // Inicializar el ADC.
+	setupPorts(); // Configurar puertos B y C como salidas.
+	sei();  // Habilitar interrupciones globales.
+
+	while (1) // Bucle principal infinito.
+	{
+		writeTextUART("1. Leer Potenciometro\r\n"); // Opción para leer el valor del potenciómetro.
+		writeTextUART("2. Enviar ASCII\r\n"); // Opción para enviar caracteres ASCII.
+		writeTextUART("Ingrese su eleccion: "); // Pedir al usuario que ingrese su elección.
+
+		uint8_t choice = 0; // Variable para almacenar la elección del usuario.
+		while (!choice) // Esperar hasta que se reciba una elección válida.
+		{
+			if (bufferTX != 0) // Verificar si se ha recibido un nuevo dato por UART.
+			{
+				char receivedChar = bufferTX; // Guardar el caracter recibido.
+				bufferTX = 0; // Limpiar el buffer.
+				if (receivedChar == '1' || receivedChar == '2') // Verificar si la elección es válida.
+				{
+					choice = receivedChar - '0'; // Convertir el caracter a número.
+				}
+			}
+		}
+
+		switch (choice) // Procesar la elección del usuario.
+		{
+			case 1:
+			ADCSRA |= (1 << ADSC);  // Iniciar la conversión del ADC estableciendo ADSC.
+			while (ADCSRA & (1 << ADSC));  // Esperar a que la conversión se complete.
+			valorADC = ADC;  // Leer el valor del ADC.
+
+			char buffer[30];
+			snprintf(buffer, sizeof(buffer), "Valor ADC: %u\r\n", valorADC); // Formatear el valor del ADC como string.
+			writeTextUART(buffer); // Enviar el valor formateado por UART.
+			break;
+
+			case 2:
+			writeTextUART("Ingresar ascii: "); 
+			while (bufferTX == 0); 
+			char asciiChar = bufferTX; 
+			bufferTX = 0; 
+			PORTB = asciiChar & 0x3F; // Asignar los 6 bits menos significativos al puerto B.
+			PORTC = (asciiChar >> 6) & 0x03; // Asignar los 2 bits más significativos al puerto C.
+			writeUART(asciiChar); // Enviar el caracter de vuelta por UART.
+			writeTextUART("\r\n"); // Enviar un salto de línea por UART.
+			break;
+
+			default:
+			writeTextUART("Invalidar.\r\n"); 
+			break;
+		}
+	}
+}
+
+void initUART9600(void)
+{
+	UBRR0 = 103;  // Configurar el registro UBRR0 para 9600 bps con F_CPU de 16MHz.
+	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);  // Habilitar receptor, transmisor y la interrupción de recepción completa.
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);  // Configurar formato de 8 bits de datos, sin paridad y 1 bit de parada.
+}
+
+void writeTextUART(const char* Texto)
+{
+	while (*Texto) 
+	{
+		while (!(UCSR0A & (1 << UDRE0))); // Esperar a que el buffer de transmisión esté vacío.
+		UDR0 = *Texto++; 
+	}
+}
+
+void writeUART(char Caracter)
+{
+	while (!(UCSR0A & (1 << UDRE0))); // Esperar a que el buffer de transmisión esté vacío.
+	UDR0 = Caracter; // Enviar el caracter.
+}
+
+void initADC(void)
+{
+	
+	ADMUX = (1 << REFS0) | 4; 
+	ADCSRA = (1 << ADEN) | (1 << ADIE) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+}
+
+void setupPorts(void)
+{
+	DDRB = 0xFF;  // Configurar todos los pines del puerto B como salidas.
+	DDRC = 0xFF;  // Configurar todos los pines del puerto C como salidas.
+}
+
+ISR(ADC_vect)
+{
+	valorADC = ADC; // Almacenar el resultado del ADC en la variable global.
+}
+
+ISR(USART_RX_vect)
+{
+	bufferTX = UDR0; // Almacenar los datos recibidos en el buffer.
+}
