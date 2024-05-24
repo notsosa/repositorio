@@ -1,0 +1,390 @@
+/*
+ * main.c
+ *
+ * Created: 5/23/2024 10:42:46 AM
+ *  Author: cssos
+ */ 
+
+#include <xc.h>
+#define F_CPU 16000000UL
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+#include <avr/eeprom.h>
+
+volatile uint16_t contador1 = 0; 
+volatile uint16_t valor = 0;
+volatile uint8_t valoradc = 0; 
+volatile uint8_t modo = 1;
+volatile uint8_t memoria = 0;
+volatile uint8_t grabar = 0;
+volatile uint8_t lecturamemoria = 2;
+volatile uint8_t PosicionA = 0;
+volatile uint8_t PosicionB = 0;
+volatile uint8_t PosicionC = 0;
+volatile uint8_t PosicionD = 0;
+
+uint8_t pullup = 0xF4;
+uint8_t salida = 11;
+uint8_t mask = 4;
+
+
+void ssetupbotones(uint8_t pullup, uint8_t salidas, uint8_t valormascara){
+
+	DDRD &= salida; //entrada
+	PORTD = 0; //pull up
+	PCICR |= mask; //interrupcion desde PD
+	PCMSK2 |= pullup; 
+}
+
+void servoread(uint8_t memoria, uint8_t lecturamemoria){
+	
+	volatile uint16_t valort1;
+	volatile uint8_t eepromval;
+	
+	if (memoria == 1){
+		
+		if (lecturamemoria == 1){
+			
+			EECR &= ~((1<<EEPM1)|(1<<EEPM0));
+			eepromval = eeprom_read_byte((uint8_t*)4);
+			valort1 = (14.12*eepromval)+1198;//mapeo(valoradc, 0, 255, 19, 39); // Establece el ancho de pulso del servo
+			OCR1AH = (valort1 & 0xFF00) >> 8;
+			OCR1AL |= valort1 & 0x00FF;	
+			
+			eepromval = eeprom_read_byte((uint8_t*)5);
+			OCR2A = (0.094*eepromval)+6.7;
+			
+			eepromval = eeprom_read_byte((uint8_t*)6);
+			OCR2B = (0.094*eepromval)+6.7;
+			eepromval = eeprom_read_byte((uint8_t*)7);
+			valort1 = (14.12*eepromval)+1198;//mapeo(valoradc, 0, 255, 19, 39); // Establece el ancho de pulso del servo
+			OCR1BH = (valort1 & 0xFF00) >> 8;
+			OCR1BL |= valort1 & 0x00FF;		
+		}
+		memoria = 0;
+	}
+	
+}
+
+void PPWM1(uint8_t numeropot, uint8_t valoradc, uint8_t memoria, uint8_t grabar){
+	
+	volatile uint16_t valortotal;
+	
+	switch (numeropot){
+		
+		case 0:
+		ADMUX = (ADMUX & 0xF0) | numeropot;
+		ADCSRA |= (1<<ADSC);
+		PosicionA = valoradc;
+		valortotal = (14.12*valoradc)+1198;//mapeo(valoradc, 0, 255, 19, 39); // Establece el ancho de pulso del servo
+		OCR1AH = (valortotal & 0xFF00) >> 8;
+		OCR1AL |= valortotal & 0x00FF;
+		while (ADCSRA & (1 << ADSC));
+		break;
+		
+		case 1:
+		ADMUX = (ADMUX & 0xF0) | numeropot;
+		ADCSRA |= (1<<ADSC);
+		PosicionB = valoradc;
+		OCR2A = (0.094*valoradc)+6.7;
+		while (ADCSRA & (1 << ADSC));
+		break;
+		
+		case 2:
+		ADMUX = (ADMUX & 0xF0) | numeropot;
+		ADCSRA |= (1<<ADSC);
+		PosicionC = valoradc;
+		OCR2B = (0.094*valoradc)+6.7;
+		while (ADCSRA & (1 << ADSC));
+		break;
+		
+		case 3:
+		ADMUX = (ADMUX & 0xF0) | numeropot;
+		ADCSRA |= (1<<ADSC);
+		PosicionD = valoradc;
+		valortotal = (14.12*valoradc)+1198;//mapeo(valoradc, 0, 255, 19, 39); // Establece el ancho de pulso del servo
+		OCR1BH = (valortotal & 0xFF00) >> 8;
+		OCR1BL |= valortotal & 0x00FF;
+		while (ADCSRA & (1 << ADSC));
+		break;
+		
+		
+	}
+	
+}
+
+void setupPWM1 (void){
+	
+	cli();
+	// pull ups
+	UCSR0B = 0;
+	// (OC1A) como salida
+	DDRB |= (1<<DDB1);
+	// (OC1B) como salida
+	DDRB |= (1<<DDB2);
+	TCCR1A = 0;
+	TCCR1B = 0;
+	//modo y prescaler
+	TCCR1A |= (1<<COM1A1);
+	TCCR1A |= (1<<COM1B1);
+	// modo fast
+	TCCR1A |= (1<<WGM11);
+	TCCR1B |= (1<<WGM13)|(1<<WGM12);
+	// prescaler a 8, 32 ms
+	TCCR1B |= (1<<CS11);
+	//Escribo 39999 a ICR1 dividido entre H y L
+	ICR1H = 0x9C;
+	ICR1L = 0x3F;
+	sei();
+	
+}
+
+void setupPWM2(void) {
+	cli();
+	// pull up
+	UCSR0B = 0;
+	// (OC1A) como salida
+	DDRB |= (1<<DDB3);
+	DDRD |= (1 << DDD3);
+	
+	TCCR2A = 0;
+	TCCR2B = 0;
+	//modo y prescaler
+	TCCR2A |= (1<<COM2A1);
+	// modo fast
+	TCCR2A |= (1<<WGM21)|(1<<WGM20);
+	// no invertido
+	TCCR2A |= (1 << COM2B1);
+	TCCR2A &= ~(1 << COM2B0);
+	// prescaler a 8, 32 ms
+	TCCR2B |= (1<<CS22)|(1<<CS21)|(1<<CS20);
+	sei();
+}
+
+void InitADC0(void){
+	ADMUX |= (1 << REFS0);
+	ADMUX &= ~(1 << REFS1);
+	//Justificacion a la izquierda.
+	ADMUX |= (1 << ADLAR);
+	//Apagamos la salida digital de PINC0
+	DIDR0 |= (1 << ADC0D);
+	//Configuración del canal 0 
+	ADMUX &= ~(1 << MUX0);
+	ADCSRA = 0;
+	// bandera del ADC
+	ADCSRA |= (1 << ADIE);
+	// prescaler a 128.
+	ADCSRA |= (1 << ADPS2)|(1 << ADPS1)|(1 << ADPS0);
+	//Habilitae el ADC
+	ADCSRA |= (1 << ADEN);
+	
+}
+
+void InitADC1(void){
+	ADMUX |= (1 << REFS0);   
+	ADMUX &= ~(1 << REFS1);
+	//Justificacion a la izquierda.
+	ADMUX |= (1 << ADLAR);
+	//Apagamos la salida digital de PINC1
+	DIDR0 |= (1 << ADC1D);
+	//Configuración del canal 1
+	ADMUX |= (1 << MUX0);
+	ADCSRA = 0;
+	//Habilitar la bandera del ADC
+	ADCSRA |= (1 << ADIE);
+	//prescaler a 128.
+	ADCSRA |= (1 << ADPS2)|(1 << ADPS1)|(1 << ADPS0);
+	//Habilitamos el ADC
+	ADCSRA |= (1 << ADEN);
+}
+
+void InitADC2(void){
+	ADMUX |= (1 << REFS0);      
+	ADMUX &= ~(1 << REFS1);
+	//Justificacion a la izquierda.
+	ADMUX |= (1 << ADLAR);
+	//Apagamos la salida digital de PINC2
+	DIDR0 |= (1 << ADC2D);
+	//Configuración del canal 2 
+	ADMUX |= (1 << MUX1); //| (1 << MUX0);
+	ADMUX &= ~(1 << MUX0);
+	ADCSRA = 0;
+	//Habilitar la bandera del ADC
+	ADCSRA |= (1 << ADIE);
+	// el prescaler a 128.
+	ADCSRA |= (1 << ADPS2)|(1 << ADPS1)|(1 << ADPS0);
+	//Habilitamos el ADC
+	ADCSRA |= (1 << ADEN);
+}
+
+void InitADC3(void){
+	ADMUX |= (1 << REFS0);    
+	ADMUX &= ~(1 << REFS1);
+	//Justificacion a la izquierda.
+	ADMUX |= (1 << ADLAR);
+	//Apagamos la salida digital de PINC3
+	DIDR0 |= (1 << ADC3D);
+	//Configuración del canal 3
+	ADMUX |= (1 << MUX1) | (1 << MUX0);
+	ADMUX |= (1 << MUX0);
+	//ADMUX &= ~(1 << MUX0);
+	ADCSRA = 0;
+	//Habilitamos la bandera del ADC
+	ADCSRA |= (1 << ADIE);
+	//Habilitamos el prescaler a 128.
+	ADCSRA |= (1 << ADPS2)|(1 << ADPS1)|(1 << ADPS0);
+	//Habilitamos el ADC
+	ADCSRA |= (1 << ADEN);
+	
+	
+}
+
+int main(void) {
+	
+	ssetupbotones(0xF4, 11, 4); //entradas D2 y D4-D7
+	setupPWM1();
+	setupPWM2();
+	InitADC0();
+	InitADC1();
+	InitADC2();
+	InitADC3();
+	DDRB = 0xFF;
+	ADCSRA |= (1<<ADSC); //interrupcion ADC
+	while (1) {
+		
+		switch(modo) {
+			
+			case 1:
+			PPWM1(0, valoradc, memoria, grabar);
+			_delay_ms(10);
+			PPWM1(1, valoradc, memoria, grabar);
+			_delay_ms(10);
+			PPWM1(2, valoradc, memoria, grabar);
+			_delay_ms(10);
+		
+		if (memoria == 1){
+			
+			if (grabar == 1){
+				
+				cli();
+		   		      eeprom_write_byte((uint8_t*)4, PosicionA);
+		   		      _delay_ms(10);
+		   		      eeprom_write_byte((uint8_t*)5, PosicionB);
+		   		      _delay_ms(10);
+		   		      eeprom_write_byte((uint8_t*)6, PosicionC);
+		   		      _delay_ms(10);
+		   		      eeprom_write_byte((uint8_t*)7, PosicionD);
+		   		      _delay_ms(10);
+				sei();
+				memoria = 0;
+			}			
+
+		}
+			break;
+			
+			case 2:
+			cli();
+			servoread(memoria, lecturamemoria);
+			_delay_ms(10);
+			sei();
+			break;
+
+			
+		}
+		
+	}
+	return 0;
+}
+
+//interrupciones
+
+
+ISR(ADC_vect){
+	
+	valoradc = ADCH;
+	ADCSRA |= (1 << ADIF);
+	
+}
+
+ISR(PCINT2_vect){
+	
+	cli();
+	if (!(PIND & (1 << PIND2))) {
+		
+		modo ++;
+		
+		if (modo == 1){
+			
+			grabar = 2;
+			PINB = 0b00000001;
+		}
+		else if (modo == 2) {
+			
+			lecturamemoria = 2;
+			PINB = 0b00010000;
+			
+		}
+		else if (modo == 3){
+			lecturamemoria = 3;
+			PINB = 0b00010001;
+		}
+		if (modo > 3){
+			
+			modo = 0;
+		}
+	}
+	
+	if (!(PIND& (1 << PIND4))){
+		
+		memoria = 1;
+		if (modo == 1){
+			
+			if (grabar == 2) {
+				
+				grabar = 1;
+				
+			}
+			else if (grabar == 1) {
+				
+				grabar = 0;
+				
+			}
+		}
+			
+		else if (modo == 2){
+		
+			if (lecturamemoria == 2) {
+				
+				lecturamemoria = 1;
+				
+			}
+			
+			else if (lecturamemoria == 1) {
+				
+				lecturamemoria = 0;
+			}
+		
+		}
+		
+			PORTC |= (1 << PINC4);
+			PORTC &= ~(1 << PINC5);
+			PORTC &= ~(1 << PINC6);
+		
+		}
+		
+			if (!(PIND & (1 << PIND5))) {
+				memoria = 2;
+				PORTC |= (1 << PINC5);
+				PORTC &= ~(1 << PINC4);
+				PORTC &= ~(1 << PINC6);
+			}		
+			if (!(PIND & (1 << PIND6))){
+				memoria = 3;
+				PORTC |= (1 << PINC4);
+				PORTC &= ~(1 << PINC5);
+				PORTC &= ~(1 << PINC6);
+			}
+			
+	sei();
+}
