@@ -1,0 +1,198 @@
+from geopy.distance import geodesic
+import numpy as np
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import messagebox
+
+
+# Variable global para almacenar los datos ingresados
+datos_ingresados = {}
+
+# Función para capturar los datos de la ventana emergente
+def capturar_datos():
+    try:
+        datos_ingresados['latitud_inicio'] = float(entry_lat_inicio.get())
+        datos_ingresados['longitud_inicio'] = float(entry_lon_inicio.get())
+        datos_ingresados['latitud_final'] = float(entry_lat_final.get())
+        datos_ingresados['longitud_final'] = float(entry_lon_final.get())
+        datos_ingresados['masa_bola'] = float(entry_masa_bola.get()) / 1000  # Convertir a kg
+        datos_ingresados['energia_maxima'] = float(entry_energia_maxima.get())
+        datos_ingresados['velocidad_angular'] = float(entry_velocidad_angular.get())
+
+        # Cerrar la ventana tras capturar los datos
+        root.destroy()
+    except ValueError:
+        messagebox.showerror("Error", "Por favor, ingrese valores válidos.")
+
+# Crear la ventana de entrada de datos
+root = tk.Tk()
+root.title("Ingresar Datos")
+root.geometry("400x400")
+
+tk.Label(root, text="Latitud Inicial: (Ejemplo: 14.641980)").pack()
+entry_lat_inicio = tk.Entry(root)
+entry_lat_inicio.pack()
+
+tk.Label(root, text="Longitud Inicial: (Ejemplo: -90.513237)").pack()
+entry_lon_inicio = tk.Entry(root)
+entry_lon_inicio.pack()
+
+tk.Label(root, text="Latitud Final: (Ejemplo: 14.642981)").pack()
+entry_lat_final = tk.Entry(root)
+entry_lat_final.pack()
+
+tk.Label(root, text="Longitud Final: (Ejemplo: -90.513247)").pack()
+entry_lon_final = tk.Entry(root)
+entry_lon_final.pack()
+
+tk.Label(root, text="Masa de la Bola (g): (Ejemplo: 130g)").pack()
+entry_masa_bola = tk.Entry(root)
+entry_masa_bola.pack()
+
+tk.Label(root, text="Energía Máxima (J): (Ejemplo: 170J)").pack()
+entry_energia_maxima = tk.Entry(root)
+entry_energia_maxima.pack()
+
+tk.Label(root, text="Velocidad Angular (rad/s): (Ejemplo: 20 rad/s)").pack()
+entry_velocidad_angular = tk.Entry(root)
+entry_velocidad_angular.pack()
+
+tk.Button(root, text="Aceptar", command=capturar_datos).pack()
+root.mainloop()
+
+# Acceder a los datos ingresados
+latitud = datos_ingresados['latitud_inicio']
+longitud = datos_ingresados['longitud_inicio']
+punto_inicio = (latitud, longitud)
+
+latitud2 = datos_ingresados['latitud_final']
+longitud2 = datos_ingresados['longitud_final']
+punto_objetivo = (latitud2, longitud2)
+
+masa_bola = datos_ingresados['masa_bola']
+energia_maxima = datos_ingresados['energia_maxima']
+omega = datos_ingresados['velocidad_angular']
+
+# Calcular la distancia entre los puntos
+distancia = geodesic(punto_inicio, punto_objetivo).meters
+print(f"La distancia es: {distancia:.2f} m")
+
+print("-----------------------")
+
+# Constantes
+g = 9.81  # Gravedad (m/s^2)
+rho = 1.225  # Densidad del aire (kg/m^3)
+r = 0.02135  # Radio de la bola (m)
+A = np.pi * r**2  # Área frontal de la bola (m^2)
+cd = 0.25  # Coeficiente de arrastre
+
+# Datos iniciales
+h_0 = 0  # Altura inicial
+x_final = distancia  # Distancia al objetivo
+y_final = 0  # Altura final
+
+# Calculo de trayectoria con efecto Magnus
+def simulate_t(v0, theta, omega):
+    theta_rad = np.radians(theta)
+    vx = v0 * np.cos(theta_rad)
+    vy = v0 * np.sin(theta_rad)
+
+    # Variables iniciales de la simulación
+    x, y = 0, h_0
+    dt = 0.001  # Paso de tiempo pequeño para mayor precisión
+
+    # Guardar posiciones
+    posicion_x = []
+    posicion_y = []
+
+    # Coeficiente Magnus ajustado
+    S = 0.5 * rho * A  # Relación de la densidad del aire y el área frontal
+
+    while y >= 0:
+        v = np.sqrt(vx**2 + vy**2)  # Velocidad total
+
+        # Arrastre
+        F_arrastre = 0.5 * rho * v**2 * cd * A
+        aceleracion_x = -F_arrastre * vx / v / masa_bola
+        aceleracion_y = -g - (F_arrastre * vy / v / masa_bola)
+
+        # Fuerzas del efecto Magnus
+        F_Mx = -S * omega * vy  # Magnus en dirección x
+        F_My = S * omega * vx   # Magnus en dirección y
+        aceleracion_x += F_Mx / masa_bola
+        aceleracion_y += F_My / masa_bola
+
+        # Actualizar velocidades con respecto al tiempo
+        vx += aceleracion_x * dt
+        vy += aceleracion_y * dt
+
+        # Actualizar posiciones
+        x += vx * dt
+        y += vy * dt
+
+        # Guardar posiciones
+        posicion_x.append(x)
+        posicion_y.append(y)
+
+        # Detenerse si la bola alcanza el objetivo
+        if abs(x - x_final) < 0.5 and abs(y - y_final) < 0.5:
+            break
+
+    return posicion_x, posicion_y, x, y  # Regresar posiciones y última posición
+
+# Función de error para optimizar la velocidad y ángulo
+def error_function(params):
+    v0, theta = params  # Velocidad inicial y ángulo
+    _, _, x_ultima, y_ultima = simulate_t(v0, theta, omega)  # Última posición
+    return np.sqrt((x_ultima - x_final)**2 + (y_ultima - y_final)**2)
+
+# Velocidad inicial máxima
+v0_max = np.sqrt(2 * energia_maxima / masa_bola)  # Velocidad inicial máxima
+print(f"La velocidad inicial máxima que soporta la pelota de golf es: {v0_max:.2f} m/s")
+
+# Simular con velocidad máxima para validar el alcance considerando resistencia del aire
+_, _, alcance_simulado_x, _ = simulate_t(v0_max, 45, omega)
+print(f"Alcance simulado (con efecto Magnus): {alcance_simulado_x:.2f} m")
+
+if alcance_simulado_x < distancia:
+    print("Advertencia: Por el efecto Magnus, la pelota no alcanza el objetivo.")
+else:
+    print("Go no go.")
+    print(f"Distancia al objetivo: {distancia:.2f} m")
+
+    # Optimización de velocidad inicial y ángulo
+    v0_initial = 40
+    theta_initial = 45
+    estimacion = [v0_initial, theta_initial]
+
+    resultado = minimize(error_function, estimacion, bounds=[(30, v0_max), (0, 90)])
+    v0_optimo, theta_optimo = resultado.x
+    print(f"Velocidad inicial óptima: {v0_optimo:.2f} m/s")
+    print(f"Ángulo óptimo: {theta_optimo:.2f} grados")
+
+    # Simular la trayectoria con los valores óptimos
+    x_vals, y_vals, x_ultima, y_ultima = simulate_t(v0_optimo, theta_optimo, omega)
+
+    # Calcular el error final
+    error_final = np.sqrt((x_ultima - x_final)**2 + (y_ultima - y_final)**2)
+    print(f"Error final: {error_final:.2f} m")
+
+    # Verificar si la bola puede llegar al objetivo
+    if error_final > 1.0:
+        print("No go.")
+    else:
+        print("Touchdown.")
+
+    # Crear la gráfica
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_vals, y_vals, label=f"Trayectoria (v0={v0_optimo:.2f} m/s, θ={theta_optimo:.2f}°)")
+    plt.axhline(0, color='gray', linestyle='--', linewidth=0.8)  # Línea del suelo
+    plt.scatter([0], [h_0], color='blue', label="Punto inicial")
+    plt.scatter([x_final], [y_final], color='red', label="Punto objetivo")
+    plt.xlabel("Distancia horizontal (m)")
+    plt.ylabel("Altura (m)")
+    plt.title("Trayectoria de la Bola de Golf (con efecto Magnus)")
+    plt.legend()
+    plt.grid()
+    plt.show()
