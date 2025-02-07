@@ -1,0 +1,394 @@
+/*
+ * labo2.1 digital 2.c
+ *
+ * Created: 2/6/2025 11:44:12 AM
+ * Author : cssos
+ */ 
+
+
+#define F_CPU 16000000
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+
+#include "LCD.h"
+#include "adc.h"
+
+// UART Baud rate
+#define BAUD 9600
+#define BRC ((F_CPU/16/BAUD) - 1)
+
+// Variables globales
+uint8_t Val1 = 0, Val2 = 0, caso = 0;
+char lista1[8], lista2[8], lista3[4] = {'0', '0', '0', '0'};
+volatile uint8_t contador = 0;
+volatile uint8_t updateLCD = 0; // Variable de estado para actualizar la LCD
+volatile uint8_t adcUpdated = 0; // Variable de estado para actualizar valores ADC
+
+// Prototipos de funciones
+void setup(void);
+void actualizarVoltaje(char *lista, uint8_t valor);
+void enviarUART(char data);
+void enviarStringUART(char* str);
+void actualizarLista(char *lista, int valor);
+void actualizarLCD(void);
+
+// Configuracion inicial del sistema
+void setup(void) {
+    cli();  // Deshabilitar interrupciones globales
+    DDRD = 0xFF;  // Puerto D como salida
+    DDRB = 0xFF;  // Puerto B como salida
+    DDRC = 0;     // Puerto C como entrada
+    
+    // Configuraci?n UART
+    UBRR0H = (BRC >> 8);  // Configurar baud rate alto
+    UBRR0L = BRC;         // Configurar baud rate bajo
+    UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0); // Habilitar transmision, recepcion e interrupcion RX
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // Configurar formato: 8 bits de datos, 1 bit de parada
+    
+    LCD_init();  // Inicializar pantalla LCD
+    _delay_ms(50);    // Esperar para asegurarse de que la LCD se inicialice correctamente
+    LCD_clear();      // Limpiar pantalla LCD
+    initADC();  // Inicializar ADC
+    ADCSRA |= (1 << ADSC);  // Iniciar la primera conversi?n ADC
+
+    sei();  // Habilitar interrupciones globales
+}
+
+// Funci?n para convertir un valor ADC a voltaje y actualizar una cadena
+void actualizarVoltaje(char *lista, uint8_t valor) {
+    float voltaje = (valor * 5.0) / 255.0;
+    uint16_t int_part = (uint16_t)voltaje;
+    uint16_t dec_part = (uint16_t)((voltaje - int_part) * 100);  // Dos decimales
+
+    if (int_part < 10) {
+        lista[0] = '0' + int_part;
+        lista[1] = '.';
+        lista[2] = '0' + (dec_part / 10);
+        lista[3] = '0' + (dec_part % 10);
+        lista[4] = 'V';
+        lista[5] = '\0';
+    } else {
+        lista[0] = '0' + (int_part / 10);
+        lista[1] = '0' + (int_part % 10);
+        lista[2] = '.';
+        lista[3] = '0' + (dec_part / 10);
+        lista[4] = '0' + (dec_part % 10);
+        lista[5] = 'V';
+        lista[6] = '\0';
+    }
+}
+
+// Funcion para actualizar una cadena con un valor de 3 digitos
+void actualizarLista(char *lista, int valor) {
+    lista[0] = '0' + (valor / 100);
+    lista[1] = '0' + ((valor / 10) % 10);
+    lista[2] = '0' + (valor % 10);
+    lista[3] = '\0';
+}
+
+// Funcion para enviar un dato por UART
+void enviarUART(char data) {
+    while (!(UCSR0A & (1 << UDRE0)));  // Esperar a que el buffer est? vac?o
+    UDR0 = data;  // Enviar dato
+}
+
+// Funci?n para enviar una cadena de caracteres por UART
+void enviarStringUART(char* str) {
+    while(*str) {
+        enviarUART(*str++);
+    }
+}
+
+// Funci?n para actualizar la pantalla LCD
+void actualizarLCD(void) {
+    LCD_clear();  // Limpiar pantalla
+    LCD_set_cursor (0, 1);
+    LCD_write_string("S1:");  // Escribir etiqueta de Sensor 1
+    LCD_set_cursor(0, 7);
+    LCD_write_string("S2:");  // Escribir etiqueta de Sensor 2
+    LCD_set_cursor(0, 13);
+    LCD_write_string("S3:");  // Escribir etiqueta de Sensor 3
+    
+    // Actualizar las cadenas con los valores actuales
+    actualizarVoltaje(lista1, Val1);
+    actualizarVoltaje(lista2, Val2);
+    actualizarLista(lista3, contador);
+
+    // Mostrar los valores en la LCD
+    LCD_set_cursor(1, 1);
+    LCD_write_string(lista1);
+    LCD_set_cursor(1, 7);
+    LCD_write_string(lista2);
+    LCD_set_cursor(1, 13);
+    LCD_write_string(lista3);
+}
+
+int main(void) {
+    setup();  // Configuracion inicial del sistema
+    
+    // Variables para guardar los valores anteriores
+    uint8_t prevVal1 = 255, prevVal2 = 255, prevContador = 255;
+
+    while (1) {
+        // Verificar si hay cambios en los valores del ADC o el contador
+        if ((Val1 != prevVal1) || (Val2 != prevVal2) || (contador != prevContador) || updateLCD) {
+            actualizarLCD();  // Actualizar la pantalla LCD
+            // Guardar los valores actuales como anteriores
+            prevVal1 = Val1;
+            prevVal2 = Val2;
+            prevContador = contador;
+            adcUpdated = 0;
+            updateLCD = 0;
+        }
+
+        // Actualizar las cadenas con los valores actuales
+        actualizarVoltaje(lista1, Val1);
+        actualizarVoltaje(lista2, Val2);
+        actualizarLista(lista3, contador);
+
+        // Enviar los valores actuales por UART
+        enviarStringUART("S1: ");
+        enviarStringUART(lista1);
+        enviarStringUART(" S2: ");
+        enviarStringUART(lista2);
+        enviarStringUART(" S3: ");
+        enviarStringUART(lista3);
+        enviarUART('\n');
+        
+        _delay_ms(100);  // Esperar 100ms
+    }
+}
+
+// Interrupcion del ADC
+ISR(ADC_vect) {
+    if (caso == 0) {
+        ADMUX &= ~((1 << MUX2) | (1 << MUX1) | (1 << MUX0)); // Seleccionar canal ADC0
+        Val1 = ADCH;  // Leer valor alto del ADC
+        caso = 1;  // Cambiar a caso 1
+    } else {
+        ADMUX = (ADMUX & ~((1 << MUX2) | (1 << MUX1) | (1 << MUX0))) | (1 << MUX0); // Seleccionar canal ADC1
+        Val2 = ADCH;  // Leer valor alto del ADC
+        caso = 0;  // Cambiar a caso 0
+    }
+    ADCSRA |= (1 << ADSC);  // Iniciar la proxima conversi?n ADC
+    adcUpdated = 1; // Indicar que se debe actualizar la LCD
+}
+
+// Interrupcion UART para recibir datos
+ISR(USART_RX_vect) {
+    char received = UDR0;  // Leer dato recibido
+    if (received == '+') {
+        if (contador < 255) {
+            contador++;  // Incrementar contador si es menor a 255
+        }
+    } else if (received == '-') {
+        if (contador > 0) {
+            contador--;  // Decrementar contador si es mayor a 0
+        }
+    }
+    updateLCD = 1; // Indicar que se debe actualizar la LCD
+}
+
+//termina el main
+//LCD.c
+/*
+ * LCD.c - Implementación de la librería LCD 16x2 en modo 8 bits
+ */
+
+#include "LCD.h"
+
+void LCD_init(){
+	
+	PORTD &= ~(1 << PORTD2); //RS = 0; comando
+	PORTD &= ~(1 << PORTD3); //E = 0
+	_delay_ms(20);
+	start(0x30); //repeticion 1
+	_delay_ms(5);
+	start(0x30); //repeticion 2
+	_delay_ms(5);
+	start(0x30); //repeticion 3
+	_delay_ms(10);
+	
+	start(0x38); //matriz 5x8
+	start(0x0C); //encender display
+	start(0X01); //limpiar
+	start(0x06); //almacenar DDRAM
+	
+}
+
+void start(char a){
+
+	PORTD &= ~(1 << PORTD2); //RS = 0; comando
+	show(a);
+	PORTD |= (1 << PORTD3); //abrir dato
+	_delay_ms(1);
+	PORTD &= ~(1 << PORTD3); //cerrar dato
+	_delay_ms(1);
+
+}
+
+void show(char a){
+	
+	if (a & 1)
+	PORTD |= (1 << 4); //si el primer bit menos significativo, es verdadero D0
+	
+	else PORTD &= ~(1 << 4); //si no es verdadero, lo coloca en cero 
+	
+	if (a & 2) //D1
+	PORTD |= (1 << 5);
+	
+	else PORTD &= ~(1 << 5);
+	
+	if (a & 4)//D2
+	PORTD |= (1 << 6);
+	
+	else PORTD &= ~(1 << 6);
+	
+	if (a & 8) //D3
+	PORTD |= (1 << 7);
+	
+	else PORTD &= ~(1 << 7);
+	
+	if (a & 16)//D4
+	PORTB |= (1 << PORTB0);
+	
+	else PORTB &= ~(1 << PORTB0);
+	
+	if (a & 32)//D5
+	PORTB |= (1 << PORTB1);
+	
+	else PORTB &= ~(1 << PORTB1);
+	
+	if (a & 64) //D6
+	PORTB |= (1 << PORTB2);
+	
+	else PORTB &= ~(1 << PORTB2);
+	
+	if (a & 128)//D7
+	PORTB |= (1 << PORTB3);
+	
+	else PORTB &= ~(1 << PORTB3);
+	
+}
+
+void LCD_clear(){
+	
+	start(1); //el fabricante lo dice
+	
+}
+
+void LCD_set_cursor(char a, char b){
+	
+	if (a == 0)
+	start(0x80 + b); //posicion linea 1 + columna
+	
+	else if (a == 1)
+	start(0xC0 + b); //posicion linea 2 + columna
+}
+
+void LCD_char_write(char data){
+	
+	PORTD |= (1 << PORTD2); //RS = 1
+	show(data);
+	PORTD |= (1 << PORTD3); //E=1 enviar dato
+	_delay_ms(1);
+	PORTD &= ~(1 << PORTD3); //E=0 
+	_delay_ms(1);
+	
+}
+
+void LCD_write_string(char *a){
+	
+	int i;
+	for (i = 0; a[i]!='\0'; i++) //corre todo hastta encontrar el \0
+	LCD_char_write(a[i]);
+}
+
+void LCD_shift_r(){ //corrimiento hacia la derecha
+	
+	start(0x1C);
+	
+}
+
+void LCD_shift_l(){ //corrimiento hacia la izquierda
+	
+	start(0x18);
+	
+}
+//LCD.h
+/*
+ * LCD.h - Librería para LCD 16x2 en modo 8 bits
+ */ 
+
+#ifndef LCD_H_
+#define LCD_H_
+
+#include <avr/io.h>
+#include <stdint.h>
+#define F_CPU 16000000
+#include <util/delay.h>
+
+void LCD_init();
+void start(char a); //repetidor
+void show(char a);
+void LCD_clear();
+void LCD_set_cursor(char a, char b);
+void LCD_char_write(char data);
+void LCD_write_string(char *a);
+void LCD_shift_r();
+void LCD_shift_l();
+
+#endif /* LCD_H_ */
+//adc.c
+/*
+ * adc.c
+ *
+ * Created: 2/6/2025 11:45:03 AM
+ *  Author: cssos
+ */ 
+
+#include "ADC.h"
+
+void initADC(){
+	
+	ADMUX = 0;
+	DIDR0 |= (1 <<ADC0D);	//desabilitar el A0 como digital
+	DIDR0 |= (1<<ADC1D);     //desabilitar el A1 como digital
+
+
+	//JUSTIFICACION IZQUIERDA
+	ADMUX |= (1<<ADLAR);
+	//REFERENCIA INTERNA
+	ADMUX |= (1<<REFS0);
+	ADMUX &= ~(1 << REFS1);
+	// HABILITAR INTERRUPCION
+	ADCSRA |= (1<<ADIE);
+	//PRESCALER 128
+	ADCSRA |= (1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);  //Habilitando prescaler de 16M/128 frecuencia = 125Khz
+	//HABILITAR ADC
+	ADCSRA |= (1<<ADEN);
+}
+//adc.h
+/*
+ * adc.h
+ *
+ * Created: 2/6/2025 11:44:51 AM
+ *  Author: cssos
+ */ 
+
+
+#ifndef ADC_H_
+#define ADC_H_
+
+#include <avr/io.h>
+#include <stdint.h>
+#define F_CPU 16000000
+#include <util/delay.h>
+
+void initADC();
+
+
+#endif
+
+
